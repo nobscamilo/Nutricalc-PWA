@@ -4,8 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
 <meta name="theme-color" content="#2e8b57" />
-<title>Calculadora Glucémica — PWA Web</title>
-<meta name="description" content="Calculadora glucémica PWA — perfil, modal selector, scanner, EAN mapping, export CSV/PDF" />
+<title>Calculadora Glucémica </title>
+<meta name="description" content="Calculadora glucémica " />
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Ctext%20y='14'%20font-size='14'%3E%F0%9F%8D%9E%3C/text%3E%3C/svg%3E">
 
 <!-- Libraries -->
@@ -824,6 +824,8 @@ td input {
     </select>
     <input id="buscador" class="search" placeholder="🔍 Buscar alimento..." />
     <button id="addBtn" class="btn small">➕ Agregar</button>
+    <!-- Buscar en OpenFoodFacts -->
+<button id="searchOFFBtn" class="btn small ghost">🌐 OFF</button>
     <button id="openModalBtn" class="btn small">📋 Selector</button>
     <button id="scanBtn" class="btn small">📷 Escanear</button>
     <button id="exportCSV" class="btn small ghost">📊 CSV</button>
@@ -1029,6 +1031,81 @@ function idbGet(store, key) {
       }
     });
   }
+  /* ----- OpenFoodFacts: búsqueda mínima e integración ----- */
+$('searchOFFBtn').addEventListener('click', async () => {
+  const q = $('buscador').value.trim();
+  if (!q) { alert('Escribe término de búsqueda para OpenFoodFacts'); return; }
+  $('modalOverlay').style.display = 'flex';
+  $('modalList').innerHTML = '<div class="item">Buscando en OpenFoodFacts…</div>';
+  try {
+    const items = await searchOpenFoodFacts(q);
+    if (!items || items.length === 0) {
+      $('modalList').innerHTML = '<div class="item">No se encontraron productos en OpenFoodFacts</div>';
+      return;
+    }
+    // Mostrar resultados (reusa modalList)
+    const list = $('modalList');
+    list.innerHTML = '';
+    items.forEach((it, idx) => {
+      const d = document.createElement('div');
+      d.className = 'item';
+      // Mostrar nombre + carbohidratos si están disponibles
+      const carbs = it.carbs_100g != null ? ` — carbs/100g: ${it.carbs_100g}` : '';
+      const energy = it.energy_kcal_100g != null ? ` — kcal/100g: ${it.energy_kcal_100g}` : '';
+      d.innerHTML = `<div style="flex:1"><strong>${escapeHtml(it.name)}</strong><div class="muted small">${it.raw && it.raw.brands? 'Marca: '+escapeHtml(it.raw.brands): ''}${carbs}${energy}</div></div>`;
+      const add = document.createElement('button');
+      add.className = 'btn small';
+      add.innerText = 'Agregar';
+      add.style.marginLeft = '10px';
+      add.onclick = async () => {
+        // Normalizar objeto a la estructura usada en tu IndexedDB seed
+        const newItem = {
+          name: it.name,
+          gi: it.gi != null ? it.gi : null,
+          carbs: it.carbs_100g != null ? Number(it.carbs_100g) : null,
+          kcal: it.energy_kcal_100g != null ? Number(it.energy_kcal_100g) : null,
+          raw: it.raw
+        };
+        try {
+          // Guardar en IndexedDB para que addRowWithAlimento lo encuentre
+          await idbPut('alimentos', newItem);
+        } catch (err) {
+          console.warn('No se pudo guardar en IndexedDB (offline o error)', err);
+        }
+        // Añadir a la tabla usando el flujo existente
+        addRowWithAlimento(newItem.name);
+        closeModal();
+      };
+      d.appendChild(add);
+      list.appendChild(d);
+    });
+    // pager no necesario para OFF resultados; ocúltalo si existe
+    const pager = $('modalPager'); if (pager) pager.innerHTML = '';
+  } catch (err) {
+    console.error('OFF search error', err);
+    $('modalList').innerHTML = '<div class="item">Error buscando OpenFoodFacts</div>';
+  }
+});
+
+/* Función helper: consulta OpenFoodFacts (simple, pública) */
+async function searchOpenFoodFacts(query) {
+  const url = 'https://world.openfoodfacts.org/cgi/search.pl'
+    + '?search_terms=' + encodeURIComponent(query)
+    + '&search_simple=1&action=process&json=1&page_size=30';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('OFF no responde');
+  const json = await res.json();
+  return (json.products || []).map(p => ({
+    key: 'off:' + (p.code || p._id || Math.random().toString(36).slice(2)),
+    name: p.product_name || p.generic_name || ('Producto ' + (p.code || '').slice(0,6)),
+    carbs_100g: p.nutriments && (p.nutriments.carbohydrates_100g ?? p.nutriments.carbohydrates) ?? null,
+    sugars_100g: p.nutriments && (p.nutriments.sugars_100g ?? null) ?? null,
+    energy_kcal_100g: p.nutriments && (p.nutriments['energy-kcal_100g'] ?? p.nutriments.energy_value) ?? null,
+    gi: null, // OFF no provee GI reliably
+    raw: p
+  }));
+}
+
 
   /* Large seed: 320 items */
   const seedAlimentos = [
