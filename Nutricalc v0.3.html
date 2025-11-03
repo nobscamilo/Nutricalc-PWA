@@ -948,6 +948,13 @@ td input {
   function round(num, decimals) {
     return Math.round(num * Math.pow(10, decimals)) / Math.pow(10, decimals);
   }
+  
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
 
   /* Profile toggle */
   window.toggleProfile = function() {
@@ -1089,22 +1096,36 @@ $('searchOFFBtn').addEventListener('click', async () => {
 
 /* Función helper: consulta OpenFoodFacts (simple, pública) */
 async function searchOpenFoodFacts(query) {
-  const url = 'https://world.openfoodfacts.org/cgi/search.pl'
-    + '?search_terms=' + encodeURIComponent(query)
-    + '&search_simple=1&action=process&json=1&page_size=30';
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('OFF no responde');
-  const json = await res.json();
-  return (json.products || []).map(p => ({
-    key: 'off:' + (p.code || p._id || Math.random().toString(36).slice(2)),
-    name: p.product_name || p.generic_name || ('Producto ' + (p.code || '').slice(0,6)),
-    carbs_100g: p.nutriments && (p.nutriments.carbohydrates_100g ?? p.nutriments.carbohydrates) ?? null,
-    sugars_100g: p.nutriments && (p.nutriments.sugars_100g ?? null) ?? null,
-    energy_kcal_100g: p.nutriments && (p.nutriments['energy-kcal_100g'] ?? p.nutriments.energy_value) ?? null,
-    gi: null, // OFF no provee GI reliably
-    raw: p
-  }));
+  try {
+    const url = 'https://world.openfoodfacts.org/cgi/search.pl'
+      + '?search_terms=' + encodeURIComponent(query)
+      + '&search_simple=1&action=process&json=1&page_size=30';
+    
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('OFF no responde');
+    
+    const json = await res.json();
+    
+    if (!json || !json.products) {
+      console.warn('OFF: respuesta sin productos');
+      return [];
+    }
+    
+    return json.products.map(p => ({
+      key: 'off:' + (p.code || p._id || Math.random().toString(36).slice(2)),
+      name: p.product_name || p.generic_name || ('Producto ' + (p.code || '').slice(0,6)),
+      carbs_100g: p.nutriments?.carbohydrates_100g ?? p.nutriments?.carbohydrates ?? null,
+      sugars_100g: p.nutriments?.sugars_100g ?? null,
+      energy_kcal_100g: p.nutriments?.['energy-kcal_100g'] ?? p.nutriments?.energy_value ?? null,
+      gi: null,
+      raw: p
+    }));
+  } catch (err) {
+    console.error('Error en searchOpenFoodFacts:', err);
+    return [];
+  }
 }
+
 
 
   /* Large seed: 320 items */
@@ -1307,61 +1328,61 @@ async function searchOpenFoodFacts(query) {
                        /* Add row functions */
                          /* Add row functions */
    /* Add row functions - CORREGIDO */
-  async function addRowWithAlimento(name) {
-    try {
-      const tbody = $('cuerpoTabla');
-      const tr = document.createElement('tr');
-      
-      const tdName = document.createElement('td');
-      tdName.innerText = name;
-      tdName.dataset.name = name;
+   async function addRowWithAlimento(name) {
+     try {
+       const tbody = $('cuerpoTabla');
+       const tr = document.createElement('tr');
+       
+       const tdName = document.createElement('td');
+       tdName.innerText = name;
+       tdName.dataset.name = name;
 
-      const tdQty = document.createElement('td');
-      const inp = document.createElement('input');
-      inp.type = 'number';
-      inp.value = 100;
-      inp.inputMode = 'decimal';
-      inp.setAttribute('aria-label', 'Cantidad');
-      inp.dataset.name = name;
-      tdQty.appendChild(inp);
+       const tdQty = document.createElement('td');
+       const inp = document.createElement('input');
+       inp.type = 'number';
+       inp.value = 100;
+       inp.inputMode = 'decimal';
+       inp.setAttribute('aria-label', 'Cantidad');
+       inp.dataset.name = name;
+       tdQty.appendChild(inp);
 
-const tdIG = document.createElement('td'); tdIG.innerText = '-';
-const tdCarbs = document.createElement('td'); tdCarbs.innerText = '0';
-const tdCG = document.createElement('td'); tdCG.innerText = '0';
-const tdKcal = document.createElement('td'); tdKcal.innerText = '0';
+       const tdIG = document.createElement('td'); tdIG.innerText = '-';
+       const tdCarbs = document.createElement('td'); tdCarbs.innerText = '0';
+       const tdCG = document.createElement('td'); tdCG.innerText = '0';
+       const tdKcal = document.createElement('td'); tdKcal.innerText = '0';
+       
+       const tdQ = document.createElement('td');
+       const btn = document.createElement('button');
+       btn.className = 'btn small danger';
+       btn.innerText = '✕';
+       btn.setAttribute('aria-label', 'Eliminar');
+       btn.onclick = () => {
+         tr.remove();
+         recalcAll();
+       };
+       tdQ.appendChild(btn);
 
-      
-      const tdQ = document.createElement('td');
-      const btn = document.createElement('button');
-      btn.className = 'btn small danger';
-      btn.innerText = '✕';
-      btn.setAttribute('aria-label', 'Eliminar');
-      btn.onclick = () => {
-        tr.remove();
-        recalcAll();
-      };
-      tdQ.appendChild(btn);
+       tr.appendChild(tdName);
+       tr.appendChild(tdQty);
+       tr.appendChild(tdIG);
+       tr.appendChild(tdCarbs);
+       tr.appendChild(tdCG);
+       tr.appendChild(tdKcal);
+       tr.appendChild(tdQ);
+       
+       tbody.appendChild(tr);
+       
+       inp.addEventListener('input', () => recalcAll());
+       
+       // IMPORTANTE: Esperar un tick antes de recalcular
+       await new Promise(resolve => setTimeout(resolve, 0));
+       await recalcAll();
+       
+     } catch (err) {
+       console.error('addRow', err);
+     }
+   }
 
-      tr.appendChild(tdName);
-      tr.appendChild(tdQty);
-      tr.appendChild(tdIG);
-      tr.appendChild(tdCarbs);
-      tr.appendChild(tdCG);
-      tr.appendChild(tdKcal);
-      tr.appendChild(tdQ);
-      
-      tbody.appendChild(tr);
-      
-      // Event listener para cambios
-      inp.addEventListener('input', () => recalcAll());
-      
-      // IMPORTANTE: Esperar a que se calcule
-      await recalcAll();
-      
-    } catch (err) {
-      console.error('addRow', err);
-    }
-  }
 
   /* Render mobile cards - OPTIMIZADO */
   async function renderMobileCards() {
@@ -1569,29 +1590,30 @@ const tdKcal = document.createElement('td'); tdKcal.innerText = '0';
     }
   }
 
-  /* Search and add - CORREGIDO */
-  $('buscador').addEventListener('input', (e) => {
-    const query = e.target.value.trim();
-    if (query.length >= 2) {
-      const results = trie.searchPrefix(query);
-      console.log(`Encontrados ${results.length} resultados para "${query}"`);
-    }
+  
   });
 
-$('addBtn').onclick = async () => {
-  const query = $('buscador').value.trim();
-  if (!query) { alert('Escribe el nombre de un alimento'); return; }
-  const results = trie.searchPrefix(query);
-  if (!results || results.length === 0) {
-    alert('No se encontró el alimento');
-    return;
-  }
-  // results puede contener objetos (recomendado). Soporte ambos casos:
-  const first = results[0];
-  const name = (typeof first === 'string') ? first : (first && first.name) ? first.name : String(first);
-  await addRowWithAlimento(name);
-  $('buscador').value = '';
-};
+  $('addBtn').onclick = async () => {
+    const query = $('buscador').value.trim();
+    if (!query) {
+      alert('Escribe el nombre de un alimento');
+      return;
+    }
+    
+    const results = trie.searchPrefix(query);
+    if (!results || results.length === 0) {
+      alert('No se encontró el alimento');
+      return;
+    }
+    
+    // Normalizar resultado (puede ser string u objeto)
+    const first = results[0];
+    const name = (typeof first === 'string') ? first : (first.name || String(first));
+    
+    await addRowWithAlimento(name);
+    $('buscador').value = '';
+  };
+
 
 
   $('openModalBtn').onclick = openModal;
